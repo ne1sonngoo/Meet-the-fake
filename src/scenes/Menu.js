@@ -5,6 +5,7 @@ class Menu extends Phaser.Scene {
 
     preload() {
         this.load.image('menu', 'assets/Menu.png');
+        this.load.image('black', 'assets/black.png');
     }
 
     create() {
@@ -16,7 +17,7 @@ class Menu extends Phaser.Scene {
             .setOrigin(0.5);
         this.add.text(400, 150, 'Press W to Play', { fontSize: '32px', fill: '#FFFF00' })
             .setOrigin(0.5);
-        this.add.text(400, 190, 'Press S for Credits', { fontSize: '24px', fill: '#FFFF00' })
+        this.add.text(400, 190, 'Press S for Tutorial', { fontSize: '24px', fill: '#FFFF00' })
             .setOrigin(0.5);
         this.add.text(400, 230, 'Move with "a" & "d" and dodge the obstacles', { fontSize: '20px', fill: '#FFFF00' })
             .setOrigin(0.5);

@@ -21,6 +21,8 @@ class Play extends Phaser.Scene {
         this.lastSpinTime = 0;
         this.spinCooldownDuration = 4000;
         this.gameOverFlag = false;
+        // Define power up duration (in milliseconds)
+        this.powerUpDuration = 5000;  // Power-up lasts 5 seconds.
     }
     
     init() {
@@ -60,10 +62,10 @@ class Play extends Phaser.Scene {
         }
         this.scoreText = this.add.text(12, 16, 'Score: ' + this.score, { fontSize: '25px', fill: '#FFF' });
         this.highScoreText = this.add.text(200, 16, 'High Score: ' + this.highScore, { fontSize: '25px', fill: '#FFF' });
-        this.brokenBonesText = this.add.text(this.game.config.width - 250, 16, 'Broken Bonez: ' + this.brokenBones, { fontSize: '25px', fill: '#FFF' });
+        // Updated broken bonez counter to display out of 10.
+        this.brokenBonesText = this.add.text(this.game.config.width - 270, 16, 'Broken Bonez: ' + this.brokenBones + '/10', { fontSize: '25px', fill: '#FFF' });
         this.spinCooldownText = this.add.text(12, 50, 'Spin ready', { fontSize: '25px', fill: '#FFF' });
         this.jumpCooldownText = this.add.text(350, 50, 'Jump ready', { fontSize: '25px', fill: '#FFF' });
-        this.powerUpText = this.add.text(12, 80, 'Power: ' + this.brokenBones + '/' + this.boneMeterThreshold, { fontSize: '25px', fill: '#FFF' });
         
         // Set Matter world bounds.
         this.matter.world.setBounds(0, 0, this.game.config.width, this.game.config.height);
@@ -96,9 +98,9 @@ class Play extends Phaser.Scene {
                 const { bodyA, bodyB } = pair;
                 if ((bodyA.label === 'topSensor' || bodyB.label === 'topSensor') && (now - this.lastBrokenBoneTime > 500)) {
                     this.brokenBones++;
-                    this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones);
+                    // Update the broken bonez text to show the current count out of 10.
+                    this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/10');
                     this.lastBrokenBoneTime = now;
-                    this.powerUpText.setText('Power: ' + this.brokenBones + '/' + this.boneMeterThreshold);
                 }
             });
         });
@@ -158,13 +160,11 @@ class Play extends Phaser.Scene {
     activatePowerUp() {
         this.powerUpActive = true;
         this.bike.setTint(0xff0000);
-        this.powerUpText.setText('Power active!');
         this.time.addEvent({
             delay: this.powerUpDuration,
             callback: () => {
                 this.powerUpActive = false;
                 this.bike.clearTint();
-                this.powerUpText.setText('Power: ' + this.brokenBones + '/' + this.boneMeterThreshold);
             },
             callbackScope: this
         });
@@ -190,18 +190,24 @@ class Play extends Phaser.Scene {
             this.canJump = true;
         }
         
-        if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && this.canJump && this.canJumpAgain) {
+        // --- JUMP LOGIC (Modified for unlimited jumps during power-up) ---
+        if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && (this.powerUpActive || (this.canJump && this.canJumpAgain))) {
             this.bike.setVelocityY(-10);
-            this.canJump = false;
-            this.canJumpAgain = false;
-            this.lastJumpTime = time;
-            this.time.addEvent({
-                delay: this.jumpCooldownDuration,
-                callback: () => { this.canJumpAgain = true; },
-                callbackScope: this
-            });
+            if (!this.powerUpActive) {
+                this.canJump = false;
+                this.canJumpAgain = false;
+                this.lastJumpTime = time;
+                this.time.addEvent({
+                    delay: this.jumpCooldownDuration,
+                    callback: () => { this.canJumpAgain = true; },
+                    callbackScope: this
+                });
+            }
         }
-        if (!this.canJumpAgain) {
+        // --- Jump Cooldown Display ---
+        if (this.powerUpActive) {
+            this.jumpCooldownText.setText('Jump ready');
+        } else if (!this.canJumpAgain) {
             let remainingJump = Math.max(0, (this.jumpCooldownDuration - (time - this.lastJumpTime)) / 1000);
             this.jumpCooldownText.setText('Jump cooldown: ' + remainingJump.toFixed(1) + 's');
         } else {
@@ -241,24 +247,27 @@ class Play extends Phaser.Scene {
             }
         }
         
-        if (Phaser.Input.Keyboard.JustDown(this.eKey) && this.canSpin && !this.doing360) {
+        // --- SPIN (FLIP) LOGIC (Modified for unlimited flips during power-up) ---
+        if (Phaser.Input.Keyboard.JustDown(this.eKey) && !this.doing360 && (this.powerUpActive || this.canSpin)) {
             this.doing360 = true;
             this.spinCumulativeRotation = 0;
             this.lastBikeRotation = this.bike.rotation;
             this.bike.setAngularVelocity(0.25);
             this.lastSpinTime = time;
-            this.canSpin = false;
+            if (!this.powerUpActive) {
+                this.canSpin = false;
+                this.time.addEvent({
+                    delay: this.spinCooldownDuration,
+                    callback: () => { this.canSpin = true; },
+                    callbackScope: this
+                });
+            }
             if (!this.motorcycleRevSound.isPlaying) {
                 this.motorcycleRevSound.play();
             }
             if (this.motorcycleBgmSound.isPlaying) {
                 this.motorcycleBgmSound.stop();
             }
-            this.time.addEvent({
-                delay: this.spinCooldownDuration,
-                callback: () => { this.canSpin = true; },
-                callbackScope: this
-            });
         }
         if (this.doing360) {
             let currentRotation = this.bike.rotation;
@@ -282,7 +291,10 @@ class Play extends Phaser.Scene {
             }
         }
         
-        if (!this.canSpin) {
+        // --- Spin Cooldown Display ---
+        if (this.powerUpActive) {
+            this.spinCooldownText.setText('Spin ready');
+        } else if (!this.canSpin) {
             let remaining = Math.max(0, (this.spinCooldownDuration - (time - this.lastSpinTime)) / 1000);
             this.spinCooldownText.setText('Spin cooldown: ' + remaining.toFixed(1) + 's');
         } else {
@@ -307,10 +319,12 @@ class Play extends Phaser.Scene {
             this.wheelieTimeAccum = 0;
         }
         
+        // --- Power Up Activation: subtract broken bonez when activated ---
         if (Phaser.Input.Keyboard.JustDown(this.fKey) && this.brokenBones >= this.boneMeterThreshold && !this.powerUpActive) {
+            this.brokenBones -= this.boneMeterThreshold;
+            this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/10');
             this.activatePowerUp();
         }
-        this.powerUpText.setText('Power: ' + this.brokenBones + '/' + this.boneMeterThreshold);
         
         // --- Loss Mechanism ---
         if (this.brokenBones >= 10 && !this.gameOverFlag) {
