@@ -27,6 +27,9 @@ class Menu extends Phaser.Scene {
         });
 
         this.input.keyboard.on('keydown-S', () => {
+            this.scene.start('tutorialScene');
+        });
+        this.input.keyboard.on('keydown-D', () => {
             this.scene.start('creditScene');
         });
     }

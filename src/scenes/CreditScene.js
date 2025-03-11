@@ -1,6 +1,6 @@
 class CreditScene extends Phaser.Scene {
     constructor() {
-        super("creditScene");
+        super( "creditScene" );
     }
 
     create() {
@@ -8,22 +8,20 @@ class CreditScene extends Phaser.Scene {
             .setOrigin(0, 0)
             .setDisplaySize(game.config.width, game.config.height);
 
-        this.add.text(400, 100, 'Tutorial', { fontSize: '32px', fill: '#FFFF00' })
+            this.add.text(400, 100, 'Game Credits', { fontSize: '32px', fill: '#FFFF00' })
             .setOrigin(0.5);
-        this.add.text(400, 180, 'Move forward and backwards with W/S', { fontSize: '24px', fill: '#FFFFFF' })
+        this.add.text(400, 180, 'Developer: Nelson Ngo', { fontSize: '24px', fill: '#FFFFFF' })
             .setOrigin(0.5);
-        this.add.text(400, 230, 'Press SPACE to jump and E to do a flip', { fontSize: '24px', fill: '#FFFFFF' })
+        this.add.text(400, 230, 'Artist: Nelson Ngo (https://www.pixilart.com/draw) ', { fontSize: '24px', fill: '#FFFFFF' })
             .setOrigin(0.5);
-            this.add.text(400, 280, 'A and D to lean bike (wheelie)', { fontSize: '24px', fill: '#FFFFFF' })
-            .setOrigin(0.5);
-        this.add.text(400, 330, 'Complete QTE for Power up (infinite jumps and flips)', { fontSize: '24px', fill: '#FFFFFF' })
-            .setOrigin(0.5);
-        this.add.text(400, 380, 'Lose if you reach 5 broken bonez', { fontSize: '24px', fill: '#FFFFFF' })
-            .setOrigin(0.5);
-        this.add.text(400, 500, 'Press S to return to the Main Menu', { fontSize: '20px', fill: '#FFFF00' })
+        this.add.text(400, 280, 'Sound: Nelson Ngo (https://bigsoundbank.com/microwave-bell-s1631.html)', { fontSize: '24px', fill: '#FFFFFF' })
             .setOrigin(0.5);
 
-        this.input.keyboard.on('keydown-S', () => {
+        this.add.text(400, 500, 'Press D to return to the Main Menu', { fontSize: '20px', fill: '#FFFF00' })
+            .setOrigin(0.5);
+
+
+        this.input.keyboard.on('keydown-D', () => {
             this.scene.start('menuScene');
         });
     }

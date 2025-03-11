@@ -6,10 +6,10 @@ const config = {
       default: 'matter',
       matter: {
           gravity: { y: 1 },
-          debug: true
+          debug: false
       }
   },
-  scene: [ Menu, Play, CreditScene ]
+  scene: [ Menu, Play, CreditScene, TutorialScene ]
 };
 
 let game = new Phaser.Game(config);
