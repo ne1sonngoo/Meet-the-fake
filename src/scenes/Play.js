@@ -1,7 +1,7 @@
 class Play extends Phaser.Scene {
     constructor() {
         super({ key: 'Play' });
-        // These variables will be reset in init().
+        // Game state variables (will be reset in init())
         this.score = 0;
         this.highScore = 0;
         this.canJump = false;
@@ -13,20 +13,30 @@ class Play extends Phaser.Scene {
         this.doing360 = false;
         this.spinCumulativeRotation = 0;
         this.lastBikeRotation = 0;
-        this.brokenBones = 0;
+        this.brokenBones = 0; // Used for loss condition (game over if ≥ 5)
         this.lastBrokenBoneTime = 0;
         this.powerUpActive = false;
+        // boneMeterThreshold is no longer used to acquire power-ups,
+        // so we keep it for informational logic if needed.
         this.boneMeterThreshold = 5;
         this.canSpin = true;
         this.lastSpinTime = 0;
         this.spinCooldownDuration = 4000;
         this.gameOverFlag = false;
-        // Define power up duration (in milliseconds)
+        // Power-up effect duration.
         this.powerUpDuration = 5000;  // Power-up lasts 5 seconds.
+        // Power-up inventory: you can only hold one at a time.
+        this.powerUpCount = 0;
+        // --- QTE Properties ---
+        this.qteActive = false;
+        this.qteSequence = [];
+        this.qteIndex = 0;
+        this.qteText = null;
+        this.qteTimerEvent = null;
     }
     
     init() {
-        // Reset the key game state variables on scene start/restart.
+        // Reset game state variables each time the scene starts or restarts.
         this.score = 0;
         this.brokenBones = 0;
         this.gameOverFlag = false;
@@ -40,34 +50,44 @@ class Play extends Phaser.Scene {
         this.lastBikeRotation = 0;
         this.canSpin = true;
         this.lastSpinTime = 0;
+        this.powerUpCount = 0;
+        // Reset QTE state.
+        this.qteActive = false;
+        this.qteSequence = [];
+        this.qteIndex = 0;
+        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
     }
     
     preload() {
+        // Load assets.
         this.load.image('background', 'assets/background.png');
         this.load.image('ramp', 'assets/ramp.png');
         this.load.image('bike', 'assets/bike.png');
-        // Load audio files.
         this.load.audio('motorcyclerev', 'assets/motorcyclerev.mp3');
         this.load.audio('motorcyclebgm', 'assets/motorcyclebgm.mp3');
     }
     
     create() {
-        // Create scrolling background.
+        // Create the scrolling background.
         this.background = this.add.tileSprite(0, 0, this.game.config.width, this.game.config.height, 'background').setOrigin(0, 0);
         
-        // Score and status texts.
+        // Create score and status texts.
         let savedHighScore = localStorage.getItem('highScore');
         if (savedHighScore !== null) {
             this.highScore = parseInt(savedHighScore, 10);
         }
         this.scoreText = this.add.text(12, 16, 'Score: ' + this.score, { fontSize: '25px', fill: '#FFF' });
         this.highScoreText = this.add.text(200, 16, 'High Score: ' + this.highScore, { fontSize: '25px', fill: '#FFF' });
-        // Updated broken bonez counter to display out of 10.
-        this.brokenBonesText = this.add.text(this.game.config.width - 270, 16, 'Broken Bonez: ' + this.brokenBones + '/10', { fontSize: '25px', fill: '#FFF' });
-        this.spinCooldownText = this.add.text(12, 50, 'Spin ready', { fontSize: '25px', fill: '#FFF' });
-        this.jumpCooldownText = this.add.text(350, 50, 'Jump ready', { fontSize: '25px', fill: '#FFF' });
+        // Display brokenBonez out of 5.
+        this.brokenBonesText = this.add.text(this.game.config.width - 270, 16, 'Broken Bonez: ' + this.brokenBones + '/5', { fontSize: '25px', fill: '#FFF' });
+        this.spinCooldownText = this.add.text(12, 50, 'Spin ready', { fontSize: '20px', fill: '#FFF' });
+        this.jumpCooldownText = this.add.text(320, 50, 'Jump ready', { fontSize: '20px', fill: '#FFF' });
+        // Removed the "Power: ..." counter.
+        // Create the power-up inventory counter (shows how many power-ups are held).
+        this.powerUpCountText = this.add.text(600, 50, 'Power-ups: ' + this.powerUpCount, { fontSize: '20px', fill: '#FFF' });
         
-        // Set Matter world bounds.
+        // Set world bounds.
         this.matter.world.setBounds(0, 0, this.game.config.width, this.game.config.height);
         
         // Create the bike.
@@ -84,7 +104,7 @@ class Play extends Phaser.Scene {
         this.bike.mainBody = mainBody;
         this.bike.topSensor = topSensor;
         
-        // Jump collision callback.
+        // Collision callback: allow jump if main body collides.
         this.bike.setOnCollideActive((collisionData) => {
             if (collisionData.bodyA.label !== 'topSensor' && collisionData.bodyB.label !== 'topSensor') {
                 this.canJump = true;
@@ -98,14 +118,13 @@ class Play extends Phaser.Scene {
                 const { bodyA, bodyB } = pair;
                 if ((bodyA.label === 'topSensor' || bodyB.label === 'topSensor') && (now - this.lastBrokenBoneTime > 500)) {
                     this.brokenBones++;
-                    // Update the broken bonez text to show the current count out of 10.
-                    this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/10');
+                    this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/5');
                     this.lastBrokenBoneTime = now;
                 }
             });
         });
         
-        // Keyboard input.
+        // Set up keyboard input.
         this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
         this.wKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
         this.aKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
@@ -124,6 +143,17 @@ class Play extends Phaser.Scene {
         this.time.addEvent({
             delay: 2000,
             callback: this.spawnRamp,
+            callbackScope: this,
+            loop: true
+        });
+        
+        // --- QTE Setup for Power-up Acquisition ---
+        // Listen for key presses for QTE.
+        this.input.keyboard.on('keydown', this.handleQTEInput, this);
+        // Schedule a QTE every 10-15 seconds.
+        this.time.addEvent({
+            delay: Phaser.Math.Between(10000, 15000),
+            callback: this.startQTE,
             callbackScope: this,
             loop: true
         });
@@ -157,9 +187,72 @@ class Play extends Phaser.Scene {
         this.ramps.push(ramp);
     }
     
+    // --- QTE Methods (Chained QTE for Power-up Acquisition) ---
+    startQTE() {
+        if (this.gameOverFlag || this.qteActive) return;
+        // Generate a sequence of 5 keys from the pool.
+        const pool = ['W', 'A', 'S', 'D', 'SPACE', 'E'];
+        this.qteSequence = [];
+        for (let i = 0; i < 5; i++) {
+            this.qteSequence.push(Phaser.Utils.Array.GetRandom(pool));
+        }
+        this.qteIndex = 0;
+        this.qteActive = true;
+        // Display the sequence with the first expected key.
+        this.qteText = this.add.text(this.game.config.width / 2, this.game.config.height / 2, 
+            'QTE:\n' + this.qteSequence.join(' ') + '\nPress: ' + this.qteSequence[0],
+            { fontSize: '40px', fill: '#FFFFFF', align: 'center' }).setOrigin(0.5);
+        // QTE sequence now lasts 8 seconds.
+        this.qteTimerEvent = this.time.addEvent({
+            delay: 8000,
+            callback: this.failQTE,
+            callbackScope: this
+        });
+    }
+    
+    handleQTEInput(event) {
+        if (!this.qteActive) return;
+        let pressedKey = (event.key === " " ? "SPACE" : event.key.toUpperCase());
+        if (!['W', 'A', 'S', 'D', 'SPACE', 'E'].includes(pressedKey)) return;
+        if (pressedKey === this.qteSequence[this.qteIndex]) {
+            this.qteIndex++;
+            if (this.qteIndex >= this.qteSequence.length) {
+                this.completeQTE();
+            } else {
+                this.qteText.setText('QTE:\n' + this.qteSequence.join(' ') + '\nPress: ' + this.qteSequence[this.qteIndex]);
+            }
+        } else {
+            this.failQTE();
+        }
+    }
+    
+    completeQTE() {
+        // Award a power-up if none is held.
+        if (this.powerUpCount < 1) {
+            this.powerUpCount = 1;
+            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
+        }
+        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
+        this.qteActive = false;
+    }
+    
+    failQTE() {
+        // Penalty: add 1 broken bone.
+        this.brokenBones++;
+        this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/5');
+        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
+        this.qteActive = false;
+    }
+    
+    // --- Power-up Activation ---
     activatePowerUp() {
         this.powerUpActive = true;
         this.bike.setTint(0xff0000);
+        // Once activated, the held power-up is used, so reset the inventory counter.
+        this.powerUpCount = 0;
+        this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
         this.time.addEvent({
             delay: this.powerUpDuration,
             callback: () => {
@@ -190,7 +283,7 @@ class Play extends Phaser.Scene {
             this.canJump = true;
         }
         
-        // --- JUMP LOGIC (Modified for unlimited jumps during power-up) ---
+        // --- Jump Logic (Unlimited jumps during power-up) ---
         if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && (this.powerUpActive || (this.canJump && this.canJumpAgain))) {
             this.bike.setVelocityY(-10);
             if (!this.powerUpActive) {
@@ -204,7 +297,6 @@ class Play extends Phaser.Scene {
                 });
             }
         }
-        // --- Jump Cooldown Display ---
         if (this.powerUpActive) {
             this.jumpCooldownText.setText('Jump ready');
         } else if (!this.canJumpAgain) {
@@ -214,6 +306,7 @@ class Play extends Phaser.Scene {
             this.jumpCooldownText.setText('Jump ready');
         }
         
+        // --- Forward/Backward Thrust ---
         if (Phaser.Input.Keyboard.JustDown(this.wKey)) {
             let forceX = this.powerUpActive ? 0.02 : 0.01;
             this.bike.applyForce({ x: forceX, y: 0 });
@@ -228,6 +321,7 @@ class Play extends Phaser.Scene {
             this.bike.applyForce({ x: -0.001, y: 0 });
         }
         
+        // --- Rotation and Auto-correction ---
         if (!this.doing360) {
             if (this.aKey.isDown) {
                 this.bike.setAngularVelocity(-0.05);
@@ -247,13 +341,14 @@ class Play extends Phaser.Scene {
             }
         }
         
-        // --- SPIN (FLIP) LOGIC (Modified for unlimited flips during power-up) ---
-        if (Phaser.Input.Keyboard.JustDown(this.eKey) && !this.doing360 && (this.powerUpActive || this.canSpin)) {
+        // --- 360 Spin (Flip) Logic (Unlimited during power-up) ---
+        if (Phaser.Input.Keyboard.JustDown(this.eKey) && this.canSpin && !this.doing360) {
             this.doing360 = true;
             this.spinCumulativeRotation = 0;
             this.lastBikeRotation = this.bike.rotation;
             this.bike.setAngularVelocity(0.25);
             this.lastSpinTime = time;
+            // During power-up, ignore spin cooldown.
             if (!this.powerUpActive) {
                 this.canSpin = false;
                 this.time.addEvent({
@@ -291,16 +386,14 @@ class Play extends Phaser.Scene {
             }
         }
         
-        // --- Spin Cooldown Display ---
-        if (this.powerUpActive) {
-            this.spinCooldownText.setText('Spin ready');
-        } else if (!this.canSpin) {
+        if (!this.canSpin) {
             let remaining = Math.max(0, (this.spinCooldownDuration - (time - this.lastSpinTime)) / 1000);
             this.spinCooldownText.setText('Spin cooldown: ' + remaining.toFixed(1) + 's');
         } else {
             this.spinCooldownText.setText('Spin ready');
         }
         
+        // --- Wheelie Scoring ---
         if (Math.abs(this.bike.angle) > 15) {
             if (!this.isWheelie) {
                 this.isWheelie = true;
@@ -319,15 +412,15 @@ class Play extends Phaser.Scene {
             this.wheelieTimeAccum = 0;
         }
         
-        // --- Power Up Activation: subtract broken bonez when activated ---
-        if (Phaser.Input.Keyboard.JustDown(this.fKey) && this.brokenBones >= this.boneMeterThreshold && !this.powerUpActive) {
-            this.brokenBones -= this.boneMeterThreshold;
-            this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/10');
+        // --- Power-up Activation ---
+        if (Phaser.Input.Keyboard.JustDown(this.fKey) && this.powerUpCount > 0 && !this.powerUpActive) {
             this.activatePowerUp();
+            this.powerUpCount = 0;
+            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
         }
         
         // --- Loss Mechanism ---
-        if (this.brokenBones >= 10 && !this.gameOverFlag) {
+        if (this.brokenBones >= 5 && !this.gameOverFlag) {
             this.gameOver();
         }
     }
@@ -335,12 +428,10 @@ class Play extends Phaser.Scene {
     gameOver() {
         this.gameOverFlag = true;
         this.sound.stopAll();
-        // Create overlay and popup.
         let overlay = this.add.rectangle(0, 0, this.game.config.width, this.game.config.height, 0x000000, 0.7).setOrigin(0, 0);
         this.add.text(this.game.config.width / 2, this.game.config.height / 2 - 50, 'GAME OVER', { fontSize: '50px', fill: '#FF0000' }).setOrigin(0.5);
         this.add.text(this.game.config.width / 2, this.game.config.height / 2 + 50, 'Press M for Main Menu or N to Restart', { fontSize: '30px', fill: '#FFF' }).setOrigin(0.5);
         
-        // Listen for M and N keys.
         this.input.keyboard.once('keydown-M', () => {
             this.scene.start('menuScene');
         });
