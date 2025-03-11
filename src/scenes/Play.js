@@ -13,27 +13,30 @@ class Play extends Phaser.Scene {
         this.doing360 = false;
         this.spinCumulativeRotation = 0;
         this.lastBikeRotation = 0;
-        this.brokenBones = 0;            // Used for loss condition (game over if ≥ 5)
+        this.brokenBones = 0;            // Loss occurs if brokenBones reaches 5
         this.lastBrokenBoneTime = 0;
         this.powerUpActive = false;      // When active, unlimited jumps/flips
-        this.boneMeterThreshold = 5;     // No longer used to acquire power-ups
+        this.boneMeterThreshold = 5;     // Not used for acquiring power-ups anymore
         this.canSpin = true;
         this.lastSpinTime = 0;
         this.spinCooldownDuration = 4000;
         this.gameOverFlag = false;
         this.powerUpDuration = 5000;     // Power-up lasts 5 seconds.
-        // Power-up inventory: you can only hold one at a time.
+        // Power-up inventory: You can only hold 1 at a time.
         this.powerUpCount = 0;
         // --- QTE Properties ---
         this.qteActive = false;
         this.qteSequence = [];
         this.qteIndex = 0;
-        this.qteText = null;
+        // We'll use two text objects for QTE:
+        // one for the full sequence and one for the instruction (current key highlighted in red).
+        this.qteSequenceText = null;
+        this.qteInstructionText = null;
         this.qteTimerEvent = null;
     }
     
     init() {
-        // Reset key game state variables on scene start/restart.
+        // Reset game state variables on scene start/restart.
         this.score = 0;
         this.brokenBones = 0;
         this.gameOverFlag = false;
@@ -52,7 +55,8 @@ class Play extends Phaser.Scene {
         this.qteActive = false;
         this.qteSequence = [];
         this.qteIndex = 0;
-        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteSequenceText) { this.qteSequenceText.destroy(); this.qteSequenceText = null; }
+        if (this.qteInstructionText) { this.qteInstructionText.destroy(); this.qteInstructionText = null; }
         if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
     }
     
@@ -63,7 +67,6 @@ class Play extends Phaser.Scene {
         this.load.image('bike', 'assets/bike.png');
         this.load.audio('motorcyclerev', 'assets/motorcyclerev.mp3');
         this.load.audio('motorcyclebgm', 'assets/motorcyclebgm.mp3');
-        // Load the Ding sound.
         this.load.audio('ding', 'assets/Ding.mp3');
     }
     
@@ -71,7 +74,6 @@ class Play extends Phaser.Scene {
         // Create scrolling background.
         this.background = this.add.tileSprite(0, 0, this.game.config.width, this.game.config.height, 'background').setOrigin(0, 0);
         
-        // Create score and status texts.
         let savedHighScore = localStorage.getItem('highScore');
         if (savedHighScore !== null) { this.highScore = parseInt(savedHighScore, 10); }
         this.scoreText = this.add.text(12, 16, 'Score: ' + this.score, { fontSize: '25px', fill: '#FFF' });
@@ -80,11 +82,10 @@ class Play extends Phaser.Scene {
         this.brokenBonesText = this.add.text(this.game.config.width - 270, 16, 'Broken Bonez: ' + this.brokenBones + '/5', { fontSize: '25px', fill: '#FFF' });
         this.spinCooldownText = this.add.text(12, 50, 'Spin ready', { fontSize: '20px', fill: '#FFF' });
         this.jumpCooldownText = this.add.text(320, 50, 'Jump ready', { fontSize: '20px', fill: '#FFF' });
-        // Removed the "Power: ..." counter.
-        // Create the power-up inventory counter (shows how many power-ups are held).
-        this.powerUpCountText = this.add.text(600, 50, 'Power-ups: ' + this.powerUpCount, { fontSize: '20px', fill: '#FFF' });
+        // Display power-up inventory counter out of 1.
+        this.powerUpCountText = this.add.text(600, 50, 'Power-ups: ' + this.powerUpCount + '/1', { fontSize: '20px', fill: '#FFF' });
         
-        // Set world bounds.
+        // Set Matter world bounds.
         this.matter.world.setBounds(0, 0, this.game.config.width, this.game.config.height);
         
         // Create the bike.
@@ -94,14 +95,14 @@ class Play extends Phaser.Scene {
         let bikeHeight = this.bike.displayHeight * 0.8;
         const { Bodies, Body } = Phaser.Physics.Matter.Matter;
         let mainBody = Bodies.rectangle(this.bike.x, this.bike.y, bikeWidth, bikeHeight, { label: 'mainBody' });
-        let topSensor = Bodies.rectangle(this.bike.x, this.bike.y - bikeHeight / 2, bikeWidth, 10, { isSensor: true, label: 'topSensor' });
+        let topSensor = Bodies.rectangle(this.bike.x, this.bike.y - bikeHeight / 2, bikeWidth / 1.5, 10, { isSensor: true, label: 'topSensor' });
         let compoundBody = Body.create({ parts: [mainBody, topSensor], friction: 0.005, frictionAir: 0.005 });
         this.bike.setExistingBody(compoundBody);
         this.bike.setOrigin(0.5, 0.5);
         this.bike.mainBody = mainBody;
         this.bike.topSensor = topSensor;
         
-        // Collision callback: allow jump if main body collides.
+        // Collision callback for jump detection.
         this.bike.setOnCollideActive((collisionData) => {
             if (collisionData.bodyA.label !== 'topSensor' && collisionData.bodyB.label !== 'topSensor') {
                 this.canJump = true;
@@ -147,6 +148,7 @@ class Play extends Phaser.Scene {
         
         // --- QTE Setup for Power-up Acquisition ---
         this.input.keyboard.on('keydown', this.handleQTEInput, this);
+        // Schedule a QTE every 10-15 seconds.
         this.time.addEvent({
             delay: Phaser.Math.Between(10000, 15000),
             callback: () => {
@@ -201,12 +203,16 @@ class Play extends Phaser.Scene {
         }
         this.qteIndex = 0;
         this.qteActive = true;
-        this.qteText = this.add.text(this.game.config.width / 2, this.game.config.height / 2, 
-            'QTE:\n' + this.qteSequence.join(' ') + '\nPress: ' + this.qteSequence[0],
+        // Create two text objects: one for the full sequence (white) and one for the instruction (red).
+        this.qteSequenceText = this.add.text(this.game.config.width / 2, this.game.config.height / 2 - 30, 
+            'QTE: ' + this.qteSequence.join(' '),
             { fontSize: '40px', fill: '#FFFFFF', align: 'center' }).setOrigin(0.5);
-        // QTE sequence now lasts 8 seconds.
+        this.qteInstructionText = this.add.text(this.game.config.width / 2, this.game.config.height / 2 + 30, 
+            'Press: ' + this.qteSequence[0],
+            { fontSize: '40px', fill: '#FF0000', align: 'center' }).setOrigin(0.5);
+        // QTE sequence lasts 10 seconds.
         this.qteTimerEvent = this.time.addEvent({
-            delay: 8000,
+            delay: 10000,
             callback: this.failQTE,
             callbackScope: this
         });
@@ -221,7 +227,7 @@ class Play extends Phaser.Scene {
             if (this.qteIndex >= this.qteSequence.length) {
                 this.completeQTE();
             } else {
-                this.qteText.setText('QTE:\n' + this.qteSequence.join(' ') + '\nPress: ' + this.qteSequence[this.qteIndex]);
+                this.qteInstructionText.setText('Press: ' + this.qteSequence[this.qteIndex]);
             }
         } else {
             this.failQTE();
@@ -232,9 +238,10 @@ class Play extends Phaser.Scene {
         // Award a power-up if none is held.
         if (this.powerUpCount < 1) {
             this.powerUpCount = 1;
-            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
+            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount + '/1');
         }
-        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteSequenceText) { this.qteSequenceText.destroy(); this.qteSequenceText = null; }
+        if (this.qteInstructionText) { this.qteInstructionText.destroy(); this.qteInstructionText = null; }
         if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
         this.qteActive = false;
     }
@@ -243,7 +250,8 @@ class Play extends Phaser.Scene {
         // Penalty: add 1 broken bone.
         this.brokenBones++;
         this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/5');
-        if (this.qteText) { this.qteText.destroy(); this.qteText = null; }
+        if (this.qteSequenceText) { this.qteSequenceText.destroy(); this.qteSequenceText = null; }
+        if (this.qteInstructionText) { this.qteInstructionText.destroy(); this.qteInstructionText = null; }
         if (this.qteTimerEvent) { this.qteTimerEvent.remove(false); this.qteTimerEvent = null; }
         this.qteActive = false;
     }
@@ -252,9 +260,9 @@ class Play extends Phaser.Scene {
     activatePowerUp() {
         this.powerUpActive = true;
         this.bike.setTint(0xff0000);
-        // Use the held power-up.
+        // Use the held power-up, so reset the inventory.
         this.powerUpCount = 0;
-        this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
+        this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount + '/1');
         this.time.addEvent({
             delay: this.powerUpDuration,
             callback: () => {
@@ -310,17 +318,17 @@ class Play extends Phaser.Scene {
         
         // --- Forward/Backward Thrust ---
         if (Phaser.Input.Keyboard.JustDown(this.wKey)) {
-            let forceX = this.powerUpActive ? 0.02 : 0.01;
+            let forceX = this.powerUpActive ? 0.04 : 0.02;
             this.bike.applyForce({ x: forceX, y: 0 });
         } else if (this.wKey.isDown) {
-            let forceX = this.powerUpActive ? 0.002 : 0.001;
+            let forceX = this.powerUpActive ? 0.004 : 0.002;
             this.bike.applyForce({ x: forceX, y: 0 });
         }
         
         if (Phaser.Input.Keyboard.JustDown(this.sKey)) {
-            this.bike.applyForce({ x: -0.01, y: 0 });
+            this.bike.applyForce({ x: -0.02, y: 0 });
         } else if (this.sKey.isDown) {
-            this.bike.applyForce({ x: -0.001, y: 0 });
+            this.bike.applyForce({ x: -0.002, y: 0 });
         }
         
         // --- Rotation and Auto-correction ---
@@ -413,12 +421,15 @@ class Play extends Phaser.Scene {
             this.wheelieTimeAccum = 0;
         }
         
-        // --- Power-up Activation ---
+        // --- Power-up Activation (Using F) ---
         if (Phaser.Input.Keyboard.JustDown(this.fKey) && this.powerUpCount > 0 && !this.powerUpActive) {
             this.activatePowerUp();
             this.powerUpCount = 0;
-            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
+            this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount + '/1');
         }
+        
+        // Update power-up inventory counter display.
+        this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount + '/1');
         
         // --- Loss Mechanism ---
         if (this.brokenBones >= 5 && !this.gameOverFlag) {
