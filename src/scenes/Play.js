@@ -13,18 +13,15 @@ class Play extends Phaser.Scene {
         this.doing360 = false;
         this.spinCumulativeRotation = 0;
         this.lastBikeRotation = 0;
-        this.brokenBones = 0; // Used for loss condition (game over if ≥ 5)
+        this.brokenBones = 0;            // Used for loss condition (game over if ≥ 5)
         this.lastBrokenBoneTime = 0;
-        this.powerUpActive = false;
-        // boneMeterThreshold is no longer used to acquire power-ups,
-        // so we keep it for informational logic if needed.
-        this.boneMeterThreshold = 5;
+        this.powerUpActive = false;      // When active, unlimited jumps/flips
+        this.boneMeterThreshold = 5;     // No longer used to acquire power-ups
         this.canSpin = true;
         this.lastSpinTime = 0;
         this.spinCooldownDuration = 4000;
         this.gameOverFlag = false;
-        // Power-up effect duration.
-        this.powerUpDuration = 5000;  // Power-up lasts 5 seconds.
+        this.powerUpDuration = 5000;     // Power-up lasts 5 seconds.
         // Power-up inventory: you can only hold one at a time.
         this.powerUpCount = 0;
         // --- QTE Properties ---
@@ -36,7 +33,7 @@ class Play extends Phaser.Scene {
     }
     
     init() {
-        // Reset game state variables each time the scene starts or restarts.
+        // Reset key game state variables on scene start/restart.
         this.score = 0;
         this.brokenBones = 0;
         this.gameOverFlag = false;
@@ -66,17 +63,17 @@ class Play extends Phaser.Scene {
         this.load.image('bike', 'assets/bike.png');
         this.load.audio('motorcyclerev', 'assets/motorcyclerev.mp3');
         this.load.audio('motorcyclebgm', 'assets/motorcyclebgm.mp3');
+        // Load the Ding sound.
+        this.load.audio('ding', 'assets/Ding.mp3');
     }
     
     create() {
-        // Create the scrolling background.
+        // Create scrolling background.
         this.background = this.add.tileSprite(0, 0, this.game.config.width, this.game.config.height, 'background').setOrigin(0, 0);
         
         // Create score and status texts.
         let savedHighScore = localStorage.getItem('highScore');
-        if (savedHighScore !== null) {
-            this.highScore = parseInt(savedHighScore, 10);
-        }
+        if (savedHighScore !== null) { this.highScore = parseInt(savedHighScore, 10); }
         this.scoreText = this.add.text(12, 16, 'Score: ' + this.score, { fontSize: '25px', fill: '#FFF' });
         this.highScoreText = this.add.text(200, 16, 'High Score: ' + this.highScore, { fontSize: '25px', fill: '#FFF' });
         // Display brokenBonez out of 5.
@@ -136,6 +133,7 @@ class Play extends Phaser.Scene {
         // Create audio.
         this.motorcycleRevSound = this.sound.add('motorcyclerev', { loop: true });
         this.motorcycleBgmSound = this.sound.add('motorcyclebgm', { loop: true });
+        this.dingSound = this.sound.add('ding');
         this.motorcycleBgmSound.play();
         
         // Create ramps.
@@ -148,12 +146,18 @@ class Play extends Phaser.Scene {
         });
         
         // --- QTE Setup for Power-up Acquisition ---
-        // Listen for key presses for QTE.
         this.input.keyboard.on('keydown', this.handleQTEInput, this);
-        // Schedule a QTE every 10-15 seconds.
         this.time.addEvent({
             delay: Phaser.Math.Between(10000, 15000),
-            callback: this.startQTE,
+            callback: () => {
+                // Play the "Ding" sound 1 second before starting the QTE.
+                this.dingSound.play();
+                this.time.addEvent({
+                    delay: 1000,
+                    callback: this.startQTE,
+                    callbackScope: this
+                });
+            },
             callbackScope: this,
             loop: true
         });
@@ -190,7 +194,6 @@ class Play extends Phaser.Scene {
     // --- QTE Methods (Chained QTE for Power-up Acquisition) ---
     startQTE() {
         if (this.gameOverFlag || this.qteActive) return;
-        // Generate a sequence of 5 keys from the pool.
         const pool = ['W', 'A', 'S', 'D', 'SPACE', 'E'];
         this.qteSequence = [];
         for (let i = 0; i < 5; i++) {
@@ -198,7 +201,6 @@ class Play extends Phaser.Scene {
         }
         this.qteIndex = 0;
         this.qteActive = true;
-        // Display the sequence with the first expected key.
         this.qteText = this.add.text(this.game.config.width / 2, this.game.config.height / 2, 
             'QTE:\n' + this.qteSequence.join(' ') + '\nPress: ' + this.qteSequence[0],
             { fontSize: '40px', fill: '#FFFFFF', align: 'center' }).setOrigin(0.5);
@@ -250,7 +252,7 @@ class Play extends Phaser.Scene {
     activatePowerUp() {
         this.powerUpActive = true;
         this.bike.setTint(0xff0000);
-        // Once activated, the held power-up is used, so reset the inventory counter.
+        // Use the held power-up.
         this.powerUpCount = 0;
         this.powerUpCountText.setText('Power-ups: ' + this.powerUpCount);
         this.time.addEvent({
@@ -283,7 +285,7 @@ class Play extends Phaser.Scene {
             this.canJump = true;
         }
         
-        // --- Jump Logic (Unlimited jumps during power-up) ---
+        // --- JUMP LOGIC (Unlimited jumps during power-up) ---
         if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && (this.powerUpActive || (this.canJump && this.canJumpAgain))) {
             this.bike.setVelocityY(-10);
             if (!this.powerUpActive) {
@@ -348,7 +350,6 @@ class Play extends Phaser.Scene {
             this.lastBikeRotation = this.bike.rotation;
             this.bike.setAngularVelocity(0.25);
             this.lastSpinTime = time;
-            // During power-up, ignore spin cooldown.
             if (!this.powerUpActive) {
                 this.canSpin = false;
                 this.time.addEvent({
