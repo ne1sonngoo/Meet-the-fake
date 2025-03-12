@@ -118,6 +118,8 @@ class Play extends Phaser.Scene {
                     this.brokenBones++;
                     this.brokenBonesText.setText('Broken Bonez: ' + this.brokenBones + '/5');
                     this.lastBrokenBoneTime = now;
+                    // Flash the camera red for 300 ms to indicate damage.
+                    this.cameras.main.flash(300, 255, 0, 0);
                 }
             });
         });
